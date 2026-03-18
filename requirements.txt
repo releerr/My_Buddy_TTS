@@ -1,0 +1,11 @@
+librosa
+numpy
+soundfile
+torch
+torchaudio
+scipy
+transformers
+modelscope
+pypinyin
+tensorboard      
+bigvgan
