@@ -64,9 +64,8 @@ def prepare_data(json_path, output_mel_dir, output_bert_dir):
         if not os.path.exists(mel_pt_path):
             try:
                 waveform, sr = load_audio(audio_path)
-                _, mel_raw = waveform_to_mel(waveform, n_mels=config.MEL_BINS)
-                mel_log = np.log(np.clip(mel_raw, a_min=1e-5, a_max=None))
-                mel_tensor = torch.from_numpy(mel_log.T).float() 
+                mel_spec, mel_norm = waveform_to_mel(waveform, n_mels=config.MEL_BINS)
+                mel_tensor = torch.from_numpy(mel_norm.T).float()
                 torch.save(mel_tensor, mel_pt_path)
             except Exception as e:
                 print(f"音频 {audio_id} 处理失败: {e}")

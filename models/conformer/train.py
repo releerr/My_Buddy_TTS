@@ -87,11 +87,11 @@ def train():
             optimizer.zero_grad()
             mel_pred = model(bert_feat, emotion_id, durations)
 
-            # 长度对齐
-            t_min = min(mel_pred.size(1), mel_target.size(1))
-            mel_pred = mel_pred[:, :t_min, :]
-            mel_target = mel_target[:, :t_min, :]
-            mel_mask = mel_mask[:, :t_min]
+            # # 长度对齐
+            # t_min = min(mel_pred.size(1), mel_target.size(1))
+            # mel_pred = mel_pred[:, :t_min, :]
+            # mel_target = mel_target[:, :t_min, :]
+            # mel_mask = mel_mask[:, :t_min]
 
             loss_dict = criterion(mel_pred, mel_target, mel_mask)
             loss_dict['total'].backward()
@@ -120,10 +120,10 @@ def train():
                                      batch['durations'].to(device))
                     
                     # 验证集同样需要对齐
-                    t_min = min(mel_pred.size(1), batch['mel'].size(1))
-                    loss_dict = criterion(mel_pred[:, :t_min, :], 
-                                         batch['mel'][:, :t_min, :].to(device), 
-                                         batch['mel_mask'][:, :t_min].to(device))
+                    # t_min = min(mel_pred.size(1), batch['mel'].size(1))
+                    loss_dict = criterion(mel_pred, 
+                                 batch['mel'].to(device), 
+                                 batch['mel_mask'].to(device))
                     total_val_loss += loss_dict['total'].item()
 
             avg_val_loss = total_val_loss / len(val_loader)

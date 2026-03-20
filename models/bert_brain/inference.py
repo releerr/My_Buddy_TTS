@@ -22,7 +22,8 @@ class BuddyInference:
 
         # load weights
         # TODO
-        ckpt_path = checkpoint_path or os.path.join(config.CHECKPOINT_DIR, 'checkpoint_v1_1000', 'best_brain_model.pth')
+        ckpt_path = checkpoint_path or os.path.join(config.CHECKPOINT_DIR, 'bert_brain_checkpoint_v1_5000', 'best_brain_model.pth')
+        # ckpt_path = checkpoint_path or os.path.join(config.CHECKPOINT_DIR, 'bert_brain_checkpoint_v3_5000', 'epoch_20.pth')
         print(f"--- 正在加载模型: {ckpt_path} ---")
         checkpoint = torch.load(ckpt_path, map_location=self.device)
 

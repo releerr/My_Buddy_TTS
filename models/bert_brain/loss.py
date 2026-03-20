@@ -12,17 +12,18 @@ class ProsodyLoss(nn.Module):
         super().__init__()
         # default weights 
         self.weights = weights if weights is not None else {
-            'pause': 1.0,
-            'duration': 1.0,
-            'breath': 0.5, # because breath points are less frequent, we can give it a smaller weight
+            'pause': 2.0,
+            'duration': 5.0,
+            'breath': 1.0, # because breath points are less frequent, we can give it a smaller weight
             'emotion': 0.3, # emotion labels are at sentence level, and we want to focus more on token-level predictions, so we can give it a smaller weight
             'event': 1.0
         }
-        
-        self.ce = nn.CrossEntropyLoss(reduction='none') # for pause, breath
-        self.mse = nn.MSELoss(reduction='none') # for duration
-        self.bce = nn.BCEWithLogitsLoss(reduction='none') # for multi-label event
-        self.emtion_ce = nn.CrossEntropyLoss() # for emotion single label
+        pause_weights = torch.tensor([3.2, 1.0]).to(config.DEVICE)
+        self.ce_weighted = nn.CrossEntropyLoss(weight=pause_weights, reduction='none')
+        self.ce_simple = nn.CrossEntropyLoss(reduction='none')
+        self.mse = nn.MSELoss(reduction='none')
+        self.bce = nn.BCEWithLogitsLoss(reduction='none')
+        self.emtion_ce = nn.CrossEntropyLoss()
 
     def forward(self, predictions, targets, mask=None):
         # prediction: ProsodyPredictor output dict
@@ -34,16 +35,21 @@ class ProsodyLoss(nn.Module):
             mask = torch.ones((B,T), device=config.DEVICE)
 
         # pause loss
-        pause_loss = self.ce(predictions['pause_logits'].view(-1, 2), targets['pause_labels'].view(-1)).view(B,T) 
+        pause_logits = predictions['pause_logits'].view(-1, 2)
+        pause_labels = targets['pause_labels'].view(-1)
+        pause_loss = self.ce_weighted(pause_logits, pause_labels).view(B, T) 
         loss_dict['pause_loss'] = (pause_loss * mask).sum() / (mask.sum() + 1e-6)
 
         # duration loss
         duration_loss = self.mse(predictions['duration_preds'], targets['pause_duration'])
-        dur_active_mask = mask * (targets['pause_labels'].float()) # only calculate duration loss on positions where there is a pause (label=1)
-        loss_dict['duration_loss'] = (duration_loss * dur_active_mask).sum() / (dur_active_mask.sum() + 1e-6)
+        dur_active_mask = mask * (targets['pause_labels'].float())
+        if dur_active_mask.sum() > 1e-4:
+            loss_dict['duration_loss'] = (duration_loss * dur_active_mask).sum() / (dur_active_mask.sum() + 1e-6)
+        else:
+            loss_dict['duration_loss'] = torch.tensor(0.0, device=config.DEVICE)
 
         # breath loss
-        breath_loss = self.ce(predictions['breath_logits'].view(-1, 2), targets['breath_labels'].view(-1)).view(B,T) 
+        breath_loss = self.ce_simple(predictions['breath_logits'].view(-1, 2), targets['breath_labels'].view(-1)).view(B,T) 
         loss_dict['breath_loss'] = (breath_loss * mask).sum() / (mask.sum() + 1e-6)
 
         # event loss (only if event classes exist and shapes match)

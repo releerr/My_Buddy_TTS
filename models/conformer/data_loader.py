@@ -101,14 +101,17 @@ def collate_fn(batch):
     durations = [b['durations'] for b in batch]
     emotion_ids = torch.tensor([b['emotion_id'] for b in batch])
 
+    mel_lengths = torch.tensor([m.size(0) for m in mels])
+
     # 自动 Padding 到 Batch 内最大长度
     bert_padded = pad_sequence(bert_feats, batch_first=True)
     mel_padded = pad_sequence(mels, batch_first=True)
     duration_padded = pad_sequence(durations, batch_first=True)
 
-    # 生成 mel_mask (1 为有效帧)
-    # 通过对比全零值生成 (Batch, Max_T_mel)
-    mel_mask = (mel_padded.abs().sum(dim=-1) != 0).float()
+    batch_size, max_mel_len, _ = mel_padded.shape
+    mel_mask = torch.arange(max_mel_len).expand(batch_size, max_mel_len) < mel_lengths.unsqueeze(1)
+    mel_mask = mel_mask.float() # 转为 0/1 浮点数
+
 
     return {
         'bert_feat': bert_padded,
@@ -202,7 +205,7 @@ if __name__ == "__main__":
             # 3. 测试数据集
             dataset = ConformerDataset(json_path, mel_dir_v, bert_dir_v)
             sample = dataset[0]
-            print("✅ 虚拟样本加载成功:")
+            print("虚拟样本加载成功:")
             print("   bert_feat shape:", sample['bert_feat'].shape)
             print("   mel shape:", sample['mel'].shape)
             print("   durations:", sample['durations'])
@@ -211,11 +214,11 @@ if __name__ == "__main__":
             # 4. 测试 DataLoader
             loader = create_dataloader(json_path, mel_dir_v, bert_dir_v, batch_size=2)
             batch = next(iter(loader))
-            print("✅ 虚拟 batch 加载成功:")
+            print("虚拟 batch 加载成功:")
             print("   bert_feat batch shape:", batch['bert_feat'].shape)
             print("   mel batch shape:", batch['mel'].shape)
             print("   mel_mask shape:", batch['mel_mask'].shape)
             print("   durations shape:", batch['durations'].shape)
         finally:
             shutil.rmtree(test_dir)
-            print("✅ 虚拟测试临时文件已清理")
+            print("虚拟测试临时文件已清理")

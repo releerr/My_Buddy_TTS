@@ -15,12 +15,14 @@ class TextEncoder(nn.Module):
         self.bert = BertModel.from_pretrained(config.CHINESE_ROBERTA_MODEL_DIR)
         self.hidden_size = self.bert.config.hidden_size # 通常是768
         self.output_dim = output_dim
+        self.dropout = nn.Dropout(0.3)
         self.projection = nn.Linear(self.hidden_size, self.output_dim)
 
     def forward(self, input_ids, attention_mask):
         outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
         last_hidden_state = outputs.last_hidden_state  # (batch_size, seq_len, hidden_size)
-        projected = self.projection(last_hidden_state)  # 降维映射 (batch_size, seq_len, output_dim)
+        dropped = self.dropout(last_hidden_state)
+        projected = self.projection(dropped)  # 降维映射 (batch_size, seq_len, output_dim)
         return projected
 
     def get_output_dim(self):

@@ -14,120 +14,110 @@ from prosody_predictor import ProsodyPredictor
 from loss import ProsodyLoss
 from audio_encoder import AudioEncoder
 
-
-# train
 def train():
     device = config.DEVICE
     print(f"--- My Buddy 训练开始！设备: {device} ---")
+    
+    # TODO
+    checkpoints_dir = os.path.join(config.CHECKPOINT_DIR, 'bert_brain_checkpoint_v4_5000')
+    os.makedirs(checkpoints_dir, exist_ok=True)
+
+    # 加载数据
     # TODO
     train_path = os.path.join(config.PROCESSED_DATA_DIR, 'processed_train_data.json') 
     val_path = os.path.join(config.PROCESSED_DATA_DIR, 'processed_val_data.json')
     
-    train_loader = create_dataloader(
-        train_path, 
-        batch_size=config.BATCH_SIZE, 
-        shuffle=True,
-        load_audio_flag=True,
-        compute_mel_flag=True
-    )
-    val_loader = create_dataloader(
-        val_path, 
-        batch_size=config.BATCH_SIZE, 
-        shuffle=False, # 验证集不需要打乱
-        load_audio_flag=True,
-        compute_mel_flag=True
-    )
+    train_loader = create_dataloader(train_path, batch_size=config.BATCH_SIZE, shuffle=True, load_audio_flag=True, compute_mel_flag=True)
+    val_loader = create_dataloader(val_path, batch_size=config.BATCH_SIZE, shuffle=False, load_audio_flag=True, compute_mel_flag=True)
 
-    # init all models
+    # 初始化模型
     text_encoder = TextEncoder().to(device)       
     audio_encoder = AudioEncoder().to(device) 
     prosody_predictor = ProsodyPredictor().to(device) 
-
     criterion = ProsodyLoss().to(device)
-    mse_align = nn.MSELoss() # 用于文字和音频特征的对齐损失 for aligning text and audio features
+    mse_align = nn.MSELoss()
 
-    # init optimizers
     optimizer = optim.AdamW([
-        {'params': text_encoder.parameters(), 'lr': 2e-5},
-        {'params': audio_encoder.parameters(), 'lr': 1e-4},
-        {'params': prosody_predictor.parameters(), 'lr': 1e-4}
-    ], weight_decay=0.01)
-    
-    history = []
+        {'params': text_encoder.parameters(), 'lr': config.LEARNING_RATE_BERT},
+        {'params': audio_encoder.parameters(), 'lr': config.LEARNING_RATE_HEAD},
+        {'params': prosody_predictor.parameters(), 'lr': config.LEARNING_RATE_HEAD}
+    ], weight_decay=config.WEIGHT_DECAY)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=5
+    )
+    #  --- 断点续练逻辑 ---
+    start_epoch = 0
     best_val_loss = float('inf')
-    best_epoch = -1
-    # training loop
-    epochs = config.EPOCHS
-    for epoch in range(epochs):
+    history = []
+    
+    # 尝试加载历史记录
+    history_path = os.path.join(checkpoints_dir, 'train_history.json')
+    if os.path.exists(history_path):
+        with open(history_path, 'r') as f:
+            history = json.load(f)
+            if history:
+                start_epoch = history[-1]['epoch']
+                print(f"检测到历史记录，将从第 {start_epoch + 1} 轮继续...")
+
+    # 尝试加载最近的一个模型（可以是 best，也可以是定期保存的）
+    resume_path = os.path.join(checkpoints_dir, 'latest_model.pth') # 我们增加一个最新模型记录
+    if os.path.exists(resume_path):
+        checkpoint = torch.load(resume_path, map_location=device)
+        text_encoder.load_state_dict(checkpoint['text_encoder_state_dict'])
+        audio_encoder.load_state_dict(checkpoint['audio_encoder_state_dict'])
+        prosody_predictor.load_state_dict(checkpoint['prosody_predictor_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        best_val_loss = checkpoint.get('best_val_loss', float('inf'))
+        print(f"成功加载断点：Epoch {start_epoch}")
+
+    # 训练循环
+    for epoch in range(start_epoch, config.EPOCHS):
         text_encoder.train()
         audio_encoder.train()
         prosody_predictor.train()
 
-        train_metrics = {
-            'total': 0, 'pause': 0, 'duration': 0, 
-            'breath': 0, 'event': 0, 'emotion': 0, 'align': 0
-        }
-
-        pbar = tqdm(train_loader, desc=f"Epoch [{epoch+1}/{epochs}] Train")
+        train_metrics = {'total': 0, 'pause': 0, 'duration': 0, 'breath': 0, 'event': 0, 'emotion': 0, 'align': 0}
+        pbar = tqdm(train_loader, desc=f"Epoch [{epoch+1}/{config.EPOCHS}] Train")
+        
         for batch in pbar:
-            # move data to device
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
             mel = batch['mel'].to(device) if batch['mel'] is not None else None
-
-            # target labels for loss
             target = {k: v.to(device) if torch.is_tensor(v) else v for k, v in batch.items()}
-            optimizer.zero_grad() # clear gradients before backward
-
-            #forward pass
-            text_features = text_encoder(input_ids, attention_mask)  # (B, T, D) 
+            
+            optimizer.zero_grad()
+            text_features = text_encoder(input_ids, attention_mask)
             
             align_loss = 0
             if mel is not None:
-                audio_features = audio_encoder(mel)  # (B, T, D) 
-                align_loss = mse_align(text_features, audio_features) # calculate alignment loss
+                audio_features = audio_encoder(mel, target_len=text_features.size(1))
+                align_loss = mse_align(text_features, audio_features)
             
-            # predict prosody features based on text features
-            predictions = prosody_predictor(text_features)  # dict of predicted features
-
-            # calculate loss
+            predictions = prosody_predictor(text_features)
             loss_dict = criterion(predictions, target, mask=attention_mask)
+            total_loss = loss_dict['total_loss'] + 0.1 * align_loss
 
-            # 最终总损失 = 韵律损失 + 对齐损失, 对齐损失给 0.5 的权重，防止带偏了预测主任务
-            total_loss = loss_dict['total_loss'] + 0.5 * align_loss
-
-            #backward pass
             total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(text_encoder.parameters(), 1.0) # gradient clipping to prevent exploding gradients
+            torch.nn.utils.clip_grad_norm_(list(text_encoder.parameters()) + list(audio_encoder.parameters()) + list(prosody_predictor.parameters()), 1.0)
             optimizer.step()
 
-            # accumulate loss for logging
-            num_batches = len(train_loader)
-            train_metrics['total'] += total_loss.item() / num_batches
-            train_metrics['pause'] += loss_dict['pause_loss'].item() / num_batches
-            train_metrics['duration'] += loss_dict['duration_loss'].item() / num_batches
-            train_metrics['breath'] += loss_dict['breath_loss'].item() / num_batches
-            train_metrics['event'] += loss_dict['event_loss'].item() / num_batches
-            train_metrics['emotion'] += loss_dict['emotion_loss'].item() / num_batches
-            if mel is not None:
-                train_metrics['align'] += align_loss.item() / num_batches
+            # 统计
+            nb = len(train_loader)
+            for k in train_metrics:
+                if k == 'total': train_metrics[k] += total_loss.item() / nb
+                elif k == 'align': train_metrics[k] += (align_loss.item() if mel is not None else 0) / nb
+                else: train_metrics[k] += loss_dict[f'{k}_loss'].item() / nb
             pbar.set_postfix({'L': f"{total_loss.item():.3f}"})
 
-
-
-        #----Valid----------
+        # 验证
         text_encoder.eval()
         audio_encoder.eval()
         prosody_predictor.eval()
-
-        val_metrics = {
-            'total': 0, 'pause': 0, 'duration': 0, 
-            'breath': 0, 'event': 0, 'emotion': 0, 'align': 0
-        }
+        val_metrics = {'total': 0, 'pause': 0, 'duration': 0, 'breath': 0, 'event': 0, 'emotion': 0, 'align': 0}
 
         with torch.no_grad():
-            vbar = tqdm(val_loader, desc=f"Epoch [{epoch+1}/{epochs}] Val")
-            for batch in vbar:
+            for batch in tqdm(val_loader, desc=f"Epoch [{epoch+1}/{config.EPOCHS}] Val"):
                 input_ids = batch['input_ids'].to(device)
                 attention_mask = batch['attention_mask'].to(device)
                 mel = batch['mel'].to(device) if batch['mel'] is not None else None
@@ -136,61 +126,63 @@ def train():
                 text_features = text_encoder(input_ids, attention_mask)
                 align_loss = 0
                 if mel is not None:
-                    audio_features = audio_encoder(mel)
-                    align_loss = mse_align(text_features, audio_features)
+                    audio_features = audio_encoder(mel, target_len=text_features.size(1))
+                    if torch.isnan(audio_features).any() or torch.isinf(audio_features).any():
+                        print("警告：发现异常音频特征，跳过本次对齐计算")
+                        align_loss = 0
+                    else:
+                        align_loss = mse_align(text_features, audio_features)
                 
                 predictions = prosody_predictor(text_features)
                 loss_dict = criterion(predictions, target, mask=attention_mask)
-                total_loss = loss_dict['total_loss'] + 0.5 * align_loss
+                total_loss = loss_dict['total_loss'] + 0.1 * align_loss
 
-                # 累加验证指标
                 nv = len(val_loader)
-                val_metrics['total'] += total_loss.item() / nv
-                val_metrics['pause'] += loss_dict['pause_loss'].item() / nv
-                val_metrics['duration'] += loss_dict['duration_loss'].item() / nv
-                val_metrics['breath'] += loss_dict['breath_loss'].item() / nv
-                val_metrics['event'] += loss_dict['event_loss'].item() / nv
-                val_metrics['emotion'] += loss_dict['emotion_loss'].item() / nv
-                if mel is not None:
-                    val_metrics['align'] += align_loss.item() / nv
+                for k in val_metrics:
+                    if k == 'total': val_metrics[k] += total_loss.item() / nv
+                    elif k == 'align': val_metrics[k] += (align_loss.item() if mel is not None else 0) / nv
+                    else: val_metrics[k] += loss_dict[f'{k}_loss'].item() / nv
 
-        # history log
+        # 保存逻辑
         epoch_log = {'epoch': epoch + 1, 'train': train_metrics, 'val': val_metrics}
         history.append(epoch_log)
+        scheduler.step(val_metrics['total'])
+        
+        # 获取当前的学习率（用于记录，方便观察它降了没）
+        current_lr = optimizer.param_groups[0]['lr']
+        epoch_log['lr'] = current_lr
+        print(f" > 当前 BERT 学习率: {current_lr:.6f}")
 
-        print(f"\n[Epoch {epoch+1}] 报告:")
-        print(f" > Train Loss: {train_metrics['total']:.4f} | Val Loss: {val_metrics['total']:.4f}")
-        print(f" > Val Details -> Pause: {val_metrics['pause']:.4f} | Dur: {val_metrics['duration']:.4f} | Breath: {val_metrics['breath']:.4f} | Event: {val_metrics['event']:.4f} | Emotion: {val_metrics['emotion']:.4f} | Align: {val_metrics['align']:.4f}")
+        # 立即更新 JSON 日志文件
+        with open(history_path, 'w') as f:
+            json.dump(history, f, indent=4)
 
-        # 保存 Checkpoint
-        # TODO
-        checkpoints_dir = os.path.join(config.CHECKPOINT_DIR, 'checkpoint_v1_1000')
-        if not os.path.exists(checkpoints_dir):
-            os.makedirs(checkpoints_dir, exist_ok=True)
+        print(f"\n[Epoch {epoch+1}] Train Loss: {train_metrics['total']:.4f} | Val Loss: {val_metrics['total']:.4f}")
 
-        # use valid dataset to find "best_val_loss"
+        # 构建通用保存字典
+        checkpoint_data = {
+            'epoch': epoch + 1,
+            'text_encoder_state_dict': text_encoder.state_dict(),
+            'audio_encoder_state_dict': audio_encoder.state_dict(),
+            'prosody_predictor_state_dict': prosody_predictor.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict(),
+            'best_val_loss': best_val_loss,
+            'metrics': val_metrics
+        }
+
+        # 保存最新模型（用于断点恢复）
+        torch.save(checkpoint_data, os.path.join(checkpoints_dir, 'latest_model.pth'))
+
+        # 保存最佳模型
         if val_metrics['total'] < best_val_loss:
             best_val_loss = val_metrics['total']
-            best_epoch = epoch + 1
-            save_path = os.path.join(checkpoints_dir, 'best_brain_model.pth')
-            torch.save({
-                'epoch': epoch + 1,
-                'text_encoder_state_dict': text_encoder.state_dict(),
-                'audio_encoder_state_dict': audio_encoder.state_dict(),
-                'prosody_predictor_state_dict': prosody_predictor.state_dict(),
-                'metrics': val_metrics
-            }, save_path)
-            print(f"发现更优模型 (Val Loss)! 已更新至 best_brain_model.pth")
+            torch.save(checkpoint_data, os.path.join(checkpoints_dir, 'best_brain_model.pth'))
+            print(f"发现更优模型! Val Loss: {best_val_loss:.4f}")
 
-    print(f"\n--- 训练总结 ---")
-    print(f"最佳轮次是 Epoch {best_epoch}, 最小验证 Loss: {best_val_loss:.4f}")
-    
-    with open(os.path.join(checkpoints_dir, 'train_history.json'), 'w') as f:
-        json.dump(history, f, indent=4)
-
-
+        if (epoch + 1) % 10 == 0:
+            torch.save(checkpoint_data, os.path.join(checkpoints_dir, f'epoch_{epoch+1}.pth'))
+            print(f"已进行周期性备份: epoch_{epoch+1}.pth")
 
 if __name__ == "__main__":
     train()
-
-

@@ -51,14 +51,15 @@ REF_DB = 20
 MAX_DB = 100      
 PREEMPHASIS = 0.97 
 
-MAX_FRAME_LEN = 5000  # 对应 SinusoidalPositionalEmbedding 的 max_len
+MAX_FRAME_LEN = 10000  # 对应 SinusoidalPositionalEmbedding 的 max_len
 MODEL_HIDDEN_DIM = 192 # 模型内部处理的隐藏维度
 
 # general training hyperparameters
 BATCH_SIZE = 16
-EPOCHS = 100 #20
-LEARNING_RATE_BERT = 2e-5
-LEARNING_RATE_HEAD = 1e-4
+EPOCHS = 25 #20
+LEARNING_RATE_BERT = 8e-6 # 2e-5
+LEARNING_RATE_HEAD = 5e-5 # 1e-4
+WEIGHT_DECAY = 0.02
 
 SEED = 42
 MAX_LENGTH = 128

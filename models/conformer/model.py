@@ -89,8 +89,7 @@ class MyBuddyModel(nn.Module):
         super().__init__()
         hidden_dim = getattr(config, 'MODEL_HIDDEN_DIM', 192)
         max_frames = getattr(config, 'MAX_FRAME_LEN', 10000)
-        if max_frames < 10000:
-            max_frames = 10000
+
         # 语义投影与情感融入
         self.input_proj = nn.Linear(config.OUTPUT_DIM, hidden_dim)
         self.emotion_embed = nn.Embedding(config.NUM_EMOTIONS, hidden_dim)
@@ -127,7 +126,6 @@ class MyBuddyModel(nn.Module):
         """
   
         x = self.input_proj(bert_feat)
-        x = self.pos_embed(x) # 展开前的序列位置
         e = self.emotion_embed(emotion_ids).unsqueeze(1)
         x = x + e # 融合情感信息
         

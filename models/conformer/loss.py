@@ -6,7 +6,7 @@ class MyBuddyLoss(nn.Module):
     """
     My Buddy 专用声学损失函数：
     """
-    def __init__(self, use_spectral_convergence=True, spec_weight=0.1, l1_weight=1.0):
+    def __init__(self, use_spectral_convergence=True, spec_weight=0.5, l1_weight=5.0):
         super().__init__()
         self.use_spectral_convergence = use_spectral_convergence
         self.spec_weight = spec_weight
@@ -18,6 +18,13 @@ class MyBuddyLoss(nn.Module):
         target: (batch, time, mel_bins) - 录音提取的真实梅尔谱
         mask: (batch, time) - 布尔掩码或 0/1 掩码,1 表示真实音频帧
         """
+        # 自动长度对齐，防止因为 duration 四舍五入导致的 1-2 帧长度不一致
+        t_min = min(pred.size(1), target.size(1))
+        pred = pred[:, :t_min, :]
+        target = target[:, :t_min, :]
+        if mask is not None:
+            mask = mask[:, :t_min]
+
         if mask is not None:
             # 确保维度对齐 (batch, time, 1)
             m = mask.unsqueeze(-1).float()
