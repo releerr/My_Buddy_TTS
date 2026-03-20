@@ -27,7 +27,7 @@ def preprocess_events(input_json_path, output_json_path):
 
 if __name__ == "__main__":
     # TODO
-    input_json = "/Users/rxia/nian/提交大赛AI模型/V1/V1/data/1000full_train_data.json"
+    input_json = "/Users/rxia/nian/提交大赛AI模型/V1/V1/data/5643_full_train_data.json"
     # TODO
-    output_json = os.path.join(config.PROCESSED_DATA_DIR, 'processed_1000full_train_data.json')
+    output_json = os.path.join(config.PROCESSED_DATA_DIR, 'processed_5643_full_data.json')
     preprocess_events(input_json, output_json)
