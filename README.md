@@ -1,4 +1,4 @@
-# My Buddy：基于神经同步动态演化（NSDC）架构的新一代高自然度 TTS 引擎
+# My Buddy：基于神经同步动态演化（NSDC）架构的高自然度 TTS 引擎
 **纯自研模型版 | 官方 README**
 
 
