@@ -57,7 +57,7 @@ python models/conformer/train.py
 ## 模型测试
 python models/bert_brain/inference.py
 python models/vocoder/inference.py
-
+```
 ---
 开源协议
 本项目基于 Apache License 2.0 开源。NSDC 架构、Lite-Conformer、BERT-Brain 均为自主研发技术.
