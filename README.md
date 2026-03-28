@@ -95,4 +95,4 @@ python models/vocoder/inference.py
 ---
 
 ## 开源协议
-本项目基于 Apache License 2.0 开源。BERT-Brain、Attention Acoustic v2 与相关训练脚本均为本项目自研与迭代实现。
+本项目基于 Apache License 2.0 开源。BERT-Brain、Attention Acoustic 与相关架构脚本均为本项目自研与迭代实现。
