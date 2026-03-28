@@ -1,44 +1,47 @@
-# My Buddy：基于神经同步动态演化（NSDC）架构的高自然度 TTS 引擎
-**纯自研模型版 | 官方 README**
+# My Buddy：基于神经同步动态级联Neural-Sync Dynamic Cascade（NSDC）架构的高自然度语音合成（TTS）引擎
+**纯自研文本与声学建模版 | 官方 README**
+
+My Buddy 是一套面向中文数字人交互与离线部署场景的语音合成系统。当前版本采用三段式架构：
+
+- `BERT-Brain`：负责文本语义与韵律条件建模
+- `Attention Acoustic`：负责通过 attention 对齐把文本条件映射成 log-mel 频谱
+- `BigVGAN Vocoder`：负责把 mel 频谱还原为高保真波形
 
 
-My Buddy 是一款专为数字人交互、具身智能及城市生活智能体设计的高自然度语音合成（TTS）系统。本项目创新性地提出了 NSDC (Neural-Sync Dynamic Conformer) 混合架构，旨在通过深度语义理解驱动声学演化，攻克传统 TTS 韵律机械、情感缺失的行业痛点。
 
 ---
 
 ## 核心技术亮点
 
-**BERT-Brain 语义中枢**
-基于 RoBERTa-WWM-Ext 预训练模型，通过深度 Transformer 结构解析文本全局语义，精准预测停顿、时长、重音及呼吸点，实现语义与韵律的深度绑定。
+**BERT-Brain 语义中枢**  
+基于 RoBERTa-WWM-Ext 提取 256 维文本语义特征，并预测停顿、停顿时长、token 级帧长、呼吸、事件和句级情感，为第二阶段提供结构化条件。
 
-**NSDC 自研声学架构**
-自研 Lite-Conformer 核心算子，融合 Self-Attention 全局建模能力与 1D 深度卷积局部特征提取能力，兼顾语气连贯性与发音清晰度，实现轻量化高性能推理。
+**Attention Acoustic v2**  
+第二阶段采用 `token conditioning -> token encoder -> frame queries -> cross attention -> mel + postnet` 的 attention 声学建模路线，并加入 guided attention 约束，让对齐更稳定。不再强依赖 token 复制展开，而是通过 attention 学习文本到声学帧的对齐关系。
 
-**极致自然韵律**
-采用 ResidualConv1DBlock 空洞卷积残差结构，大幅扩大时序感受野，精准捕捉人声细微纹理与呼吸起伏，彻底消除合成语音的“电音感”与机械感。
+**显式韵律条件注入**  
+第二阶段仍然显式接收第一阶段输出的 `pause / breath / token duration / event / emotion` 条件特征。也就是说，第一阶段 `bert_brain` 依然保留，而且它的韵律特征仍然会被第二阶段使用。
 
-**广播级音质输出**
-集成 BigVGAN 生成对抗网络声码器，支持 44.1kHz 高采样率音频生成，提供高保真、通透、自然的真人级听觉体验。
-
-**零延迟交互看板**
-配套前后端分离可视化管理界面，支持流式语音播报、实时合成与梅尔频谱动态监控，全流程离线可用。
+**广播级音质输出**  
+集成 BigVGAN 声码器，支持 44.1kHz 音频生成，提供高保真语音输出能力。
 
 ---
 
 ## 系统架构
 
-项目采用“感知-生成-还原”三层解耦架构，全模块自研、可独立迭代、支持本地离线部署。
+项目采用“理解-声学-还原”三层解耦架构，模块可独立训练、替换与调试。
 
-**文本分析层 (The Brain)**
-以 TextEncoder 与 ProsodyPredictor 为核心，通过 RoBERTa 提取 256 维语义特征，经由 1D CNN 韵律预测头输出停顿时长、重音、呼吸等标签，实现从字面理解到语境理解。
+**文本分析层 (The Brain)**  
+`TextEncoder + ProsodyPredictor` 将文本转换为 256 维语义特征，并预测停顿、时长、呼吸、事件和情感条件。
 
-**声学建模层 (The Body)**
-以自研 NSDC Conformer 为核心，通过时长调节器完成文本特征与音频帧对齐，经由 Lite-Conformer 与残差卷积模块处理，输出 80 维梅尔频谱。
+**声学建模层 (The Body)**  
+`Attention Acoustic` 先对 token 条件序列编码，再构造帧级 query，通过 cross-attention 对齐到文本条件，并用 guided attention loss 约束单调对齐，最后输出 128 维 log-mel 频谱。
 
-**波形合成层 (The Voice)**
-以 BigVGAN Vocoder 为核心，将梅尔频谱转换为高保真语音波形，RTF < 0.1，支持端侧实时推理。
+**波形合成层 (The Voice)**  
+`BigVGAN Vocoder` 将 mel 频谱还原为高保真语音波形。
 
 ---
+
 **<span style="color:red">模型推理测试前请确认模型权重已下载并存放到指定文件夹</span>**
 
 ## 权重存放链接
@@ -46,27 +49,50 @@ modelscope: https://modelscope.cn/models/notnot/MyBuddy_NSDC_TTS
 
 huggingFace: https://huggingface.co/Releer/MyBuddy_NSDC_TTS
 
-## 代码存放链接：
+## 代码存放链接
 github：https://github.com/releerr/My_Buddy_TTS
 
 ---
+
 ## 快速上手
 **<span style="color:red">需更改所有模型代码中标注“#TODO”部分的文件夹名称，替换成您的本地文件夹</span>**
-### 环境准备（需python3.10以上版本）
+
+### 环境准备（需 Python 3.10 以上）
 ```bash
 git clone https://github.com/your-username/MyBuddy.git
 cd MyBuddy
 pip install -r requirements.txt
+```
 
-
-## 模型训练
+### 模型训练
+```bash
 python models/bert_brain/train.py
-python models/conformer/train.py
+ACOUSTIC_STAGE=short python models/acoustic/train.py
+ACOUSTIC_STAGE=medium python models/acoustic/train.py
+ACOUSTIC_STAGE=full python models/acoustic/train.py
+```
 
-## 模型推理测试
+### 数据准备
+```bash
+python models/acoustic/scripts/prepare_acoustic_data.py
+```
+
+### 模型推理测试
+```bash
 python models/bert_brain/inference.py
 python models/vocoder/inference.py
 ```
+
+### 推荐训练节奏
+第二阶段建议使用课程学习，而不是一开始直接全量：
+
+- `short`：优先学习最容易的一批短样本，默认 `100` 条
+- `medium`：扩大到默认 `500` 条，并自动从 `short` 阶段初始化
+- `full`：最后再进入全量训练，并自动从 `medium` 阶段初始化
+
+这三阶段使用的是同一个 `Attention Acoustic` 模型架构，只是训练数据规模和 checkpoint 不同。
+
 ---
-开源协议
-本项目基于 Apache License 2.0 开源。NSDC 架构、Lite-Conformer、BERT-Brain 均为自主研发技术.
+
+## 开源协议
+本项目基于 Apache License 2.0 开源。BERT-Brain、Attention Acoustic v2 与相关训练脚本均为本项目自研与迭代实现。
